@@ -1,7 +1,7 @@
 from shapely.geometry   import Point, LineString, Polygon, MultiPolygon, MultiLineString
 from shapely.prepared   import prep
 import torch
-
+import time
 (xmin, xmax) = (0, 30)
 (ymin, ymax) = (0, 20)
 
@@ -333,7 +333,246 @@ def connectsTo(nearnode, nextnode):
 
 
 
+# def connectsTo2(nearnode, nextnode):
+#     """
+#     Returns a boolean tensor indicating which node pairs can connect without intersecting walls.
+    
+#     Inputs:
+#     - nearnode: (B, 2) tensor of start points
+#     - nextnode: (B, 2) tensor of end points
+    
+#     Output:
+#     - (B,) boolean tensor: True if the segment is not blocked, False if it intersects any wall
+#     """
+
+    
+#     B = nearnode.shape[0]
+    
+#     def orientation(p, q, r):
+#         """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+#         # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+#         # val performs the cross product to get the orientation
+#         # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+#         val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
+#         zero = torch.tensor(0.0, device=val.device)
+#         return torch.where(
+#             torch.abs(val) < 1e-8,
+#             torch.tensor(0, device=val.device),  # colinear
+#             torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+#         )
+
+#     def on_segment(p, q, r):
+#         """Check if point q lies on segment pr"""
+#         return (
+#             (q[:,0] <= torch.max(p[:,0], r[:,0])) & (q[:,0] >= torch.min(p[:,0], r[:,0])) &
+#             (q[:,1] <= torch.max(p[:,1], r[:,1])) & (q[:,1] >= torch.min(p[:,1], r[:,1]))
+#         )
+
+#     def segment_intersects(p1, p2, q1, q2):
+#         """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
+#         o1 = orientation(p1, p2, q1)
+#         o2 = orientation(p1, p2, q2)
+#         o3 = orientation(q1, q2, p1)
+#         o4 = orientation(q1, q2, p2)
+
+#         # a general intersection test
+#         general = (o1 != o2) & (o3 != o4)
+
+#         # check if the lines are colinear and overlap/touch
+#         col1 = (o1 == 0) & on_segment(p1, q1, p2)
+#         col2 = (o2 == 0) & on_segment(p1, q2, p2)
+#         col3 = (o3 == 0) & on_segment(q1, p1, q2)
+#         col4 = (o4 == 0) & on_segment(q1, p2, q2)
+
+#         return general | col1 | col2 | col3 | col4
+
+#     all_connect_check = torch.ones(B, dtype=torch.bool, device=device)
+
+#     wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+
+#     for wall in wall_list:
+#         wx1, wy1 = wall.coords[0]
+#         wx2, wy2 = wall.coords[1]
+
+#         wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
+#         wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
+
+#         intersects = segment_intersects(nearnode, nextnode, wall_start, wall_end)
+
+#         all_connect_check &= ~intersects  # Block if it intersects
+
+#     return all_connect_check
+
+# # we wanna rewrite the connects to function so that it first checks which walls would be walls of concern
+# def identifyWall(point1, point2):
+#     wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+
+#     # convert the wall_list into a tensor containing the endpoints
+#     # wall_x1 = torch.ones(len(wall_list), device=device)
+#     # wall_x2 = torch.ones(len(wall_list), device=device)
+#     # wall_y1 = torch.ones(len(wall_list), device=device)
+#     # wall_y2 = torch.ones(len(wall_list), device=device)
+#     wall_x1 = []
+#     wall_x2 = []
+#     wall_y1 = []
+#     wall_y2 = []
+#     idx = 0
+#     for wall in wall_list:
+#         wall_coords = wall.coords
+#         x1, y1, x2, y2 = wall_coords[0][0], wall_coords[0][1], wall_coords[1][0], wall_coords[1][1]
+#         # wall_x1[idx] = x1
+#         # wall_x2[idx] = x2
+#         # wall_y1[idx] = y1
+#         # wall_y2[idx] = y2
+#         wall_x1.append(x1)
+#         wall_x2.append(x2)
+#         wall_y1.append(y1)
+#         wall_y2.append(y2)
+#         idx += 1
+
+#     x1, y1 = point1[:,0], point1[:,1]
+#     x2, y2 = point2[:,0], point2[:,1]
+#     # accepts two points (nearnode and nextnode) and checks if the line would overlap with any of the walls
+#     x_min = torch.min(x1, x2)
+#     y_min = torch.min(y1, y2)
+#     x_max = torch.max(x1, x2)
+#     y_max = torch.max(y1, y2)
+
+#     new_wall_list = []
+
+#     for t_idx in range(len(wall_x1)):
+#         m1 = (wall_x1[t_idx] >= x_min)
+#         m2 = (wall_x1[t_idx] <= x_max)
+#         m3 = (wall_x2[t_idx] >= x_min)
+#         m4 = (wall_x2[t_idx] <= x_max)
+#         m5 = (wall_y1[t_idx] >= y_min)
+#         m6 = (wall_y1[t_idx] <= y_max) 
+#         m7 = (wall_y2[t_idx] >= y_min) 
+#         m8 = (wall_y2[t_idx] <= y_max)
+
+#         m_list =  m1 | m2 | m3 | m4 | m5 | m6 | m7 | m8
+#         print(m_list)
+#         if True in m_list:
+#             new_wall_list.append(t_idx)
+
+#     return new_wall_list
+
+def identifyWalls(point1, point2):
+    
+    # define the bounds of the box
+    # maybe add some tolerance to it later on
+    top = torch.maximum(point1[:,1], point2[:,1])
+    bottom = torch.minimum(point1[:,1], point2[:,1])
+    left = torch.minimum(point1[:,0], point2[:,0])
+    right = torch.maximum(point1[:,0], point2[:,0])
+
+    # define the walls from their coordinates
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+    wall_keep = []
+    # wall_check = []
+    for wall in wall_list:
+        wall_coords = wall.coords
+        x1, y1, x2, y2 = wall_coords[0][0], wall_coords[0][1], wall_coords[1][0], wall_coords[1][1]
+
+        # check for whether the x1, x2 are between left and right
+        x_check1 = (x1 <= right) & (x1 >= left)
+        x_check2 = (x2 <= right) & (x2 >= left)
+
+        x_check = x_check1 | x_check2
+
+        # check for whether y1, y2 are between top and bottom
+        y_check1 = (y1 <= top) & (y1 >= bottom) 
+        y_check2 = (y2 <= top) & (y2 >= bottom)
+
+        y_check = y_check1 | y_check2
+
+
+        # x_check and y_check return True if these line end points are in the range and false if they are not
+        # so I wanna say that if any of these is true then append the wall
+        wall_check = x_check | y_check
+        if wall_check.any():
+            wall_keep.append(wall)
+
+    return wall_keep
+
+
+
+
+
+
 def connectsTo2(nearnode, nextnode):
+    """
+    Returns a boolean tensor indicating which node pairs can connect without intersecting walls.
+    
+    Inputs:
+    - nearnode: (B, 2) tensor of start points
+    - nextnode: (B, 2) tensor of end points
+    
+    Output:
+    - (B,) boolean tensor: True if the segment is not blocked, False if it intersects any wall
+    """
+
+    
+    B = nearnode.shape[0]
+    
+    def orientation(p, q, r):
+        """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+        # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+        # val performs the cross product to get the orientation
+        # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+        val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
+        zero = torch.tensor(0.0, device=val.device)
+        return torch.where(
+            torch.abs(val) < 1e-8,
+            torch.tensor(0, device=val.device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+        )
+
+    def on_segment(p, q, r):
+        """Check if point q lies on segment pr"""
+        return (
+            (q[:,0] <= torch.max(p[:,0], r[:,0])) & (q[:,0] >= torch.min(p[:,0], r[:,0])) &
+            (q[:,1] <= torch.max(p[:,1], r[:,1])) & (q[:,1] >= torch.min(p[:,1], r[:,1]))
+        )
+
+    def segment_intersects(p1, p2, q1, q2):
+        """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
+        o1 = orientation(p1, p2, q1)
+        o2 = orientation(p1, p2, q2)
+        o3 = orientation(q1, q2, p1)
+        o4 = orientation(q1, q2, p2)
+
+        # a general intersection test
+        general = (o1 != o2) & (o3 != o4)
+
+        # check if the lines are colinear and overlap/touch
+        col1 = (o1 == 0) & on_segment(p1, q1, p2)
+        col2 = (o2 == 0) & on_segment(p1, q2, p2)
+        col3 = (o3 == 0) & on_segment(q1, p1, q2)
+        col4 = (o4 == 0) & on_segment(q1, p2, q2)
+
+        return general | col1 | col2 | col3 | col4
+
+    all_connect_check = torch.ones(B, dtype=torch.bool, device=device)
+
+    # wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+    wall_list = identifyWalls(nearnode, nextnode)
+
+    for wall in wall_list:
+        wx1, wy1 = wall.coords[0]
+        wx2, wy2 = wall.coords[1]
+
+        wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
+        wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
+
+        intersects = segment_intersects(nearnode, nextnode, wall_start, wall_end)
+
+        all_connect_check &= ~intersects  # Block if it intersects
+
+    return all_connect_check
+
+
+def connectsTo3(nearnode, nextnode):
     """
     Returns a boolean tensor indicating which node pairs can connect without intersecting walls.
     
@@ -403,10 +642,393 @@ def connectsTo2(nearnode, nextnode):
 
     return all_connect_check
 
+# define the nearnodes I expect this to return False, True, False, True, True, False, True, False, False, True, False
+# nearnode = torch.tensor([[0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5], [0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5]], dtype=torch.float, device=device)
+# nextnode = torch.tensor([[0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15], [0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15]], dtype=torch.float, device=device)
 
-# define the nearnodes I expect this to return False, True, False, True, True, False,     True, False, False, True, False
-nearnode = torch.tensor([[0,0], [1,2], [5,2], [0,0], [2,0], [15,6],   [13,8], [12,8], [0,10], [18,5], [25,5]], dtype=torch.float, device=device)
-nextnode = torch.tensor([[0,10], [5,5], [15,4], [0,5], [2,2], [15,8],    [13,4], [16,8], [5,10], [22,5], [25,15]], dtype=torch.float, device=device)
+# trials = 100
+# times = []
+# time_sum = 0
 
-ans = connectsTo2(nearnode, nextnode)
-print(ans)
+# for iter in range(trials):
+#     t1 = time.time()
+#     ans = connectsTo2(nearnode, nextnode)
+#     t2 = time.time()
+#     time_diff1 = t2 - t1
+#     print(f'{ans}, time = {time_diff1}, this is the version that uses the bounding box')
+#     times.append(time_diff1)
+#     time_sum += time_diff1
+
+# print(time_sum)
+# print(len(times))
+# average = time_sum/len(times)
+# print(f'Average time is {average}')
+
+# trials = 100
+# times = []
+# time_sum = 0
+
+# for iter in range(trials):
+#     t3 = time.time()
+#     ans = connectsTo3(nearnode, nextnode)
+#     t4 = time.time()
+#     time_diff2 = t4 - t3
+#     print(f'{ans}, time = {time_diff2}, this is the version that processes all the walls')
+#     times.append(time_diff2)
+#     time_sum += time_diff2
+
+# print(time_sum)
+# print(len(times))
+# average = time_sum/len(times)
+# print(f'Average time is {average}')
+
+
+
+
+
+
+#### RESULTS ####
+# So both versions of connects to give the same result (slay!!)
+
+
+## BUT the version with the bounding box takes 0.09 seconds to get the solution
+# while the version that processes all the walls takes 0.03 seconds (1/3 of the time)
+
+# Here's the raw output:
+"""
+tensor([False,  True, False,  True,  True, False,  True, False, False,  True,
+        False, False,  True, False,  True,  True, False,  True, False, False,
+         True, False], device='cuda:0'), time = 0.09182190895080566, this is the version that uses the bounding box
+tensor([False,  True, False,  True,  True, False,  True, False, False,  True,
+        False, False,  True, False,  True,  True, False,  True, False, False,
+         True, False], device='cuda:0'), time = 0.030116558074951172, this is the version that processes all the walls
+"""
+
+# Update, I think the first iteration is always slow. Because when I processed the process-all-walls function first, it also
+# gave something around 0.1 s (weird)
+
+
+
+# New method: do 20 trials and take the average
+# bounding box average: 0.02207754850387573
+
+# all-walls-processed average: 0.02182776927947998
+
+
+# Tried for 100 trials
+# bounding box average: 0.020766091346740723
+
+# all-walls-processed average: 0.018065853118896483
+
+# In both cases, they perform similarly, but all-walls-processed performs slightly better
+
+
+
+
+
+
+
+### NEXT, check whether the solution is the same after deleting the colinear checks. This should be valid to do because
+
+# 1. the probability of the lines being exactly colinear should be low
+# 2. with the deletion, if the lines are found to be colinear, the assumption is that they connect.
+# This is okay because for colinear overlapping --> this possibility is weeded out by the inFreespace function
+# For colinear non-overlapping --> this would be a valid connection
+
+
+
+def connectsTo4(nearnode, nextnode):
+    """
+    Returns a boolean tensor indicating which node pairs can connect without intersecting walls.
+    
+    Inputs:
+    - nearnode: (B, 2) tensor of start points
+    - nextnode: (B, 2) tensor of end points
+    
+    Output:
+    - (B,) boolean tensor: True if the segment is not blocked, False if it intersects any wall
+    """
+
+    
+    B = nearnode.shape[0]
+    
+    def orientation(p, q, r):
+        """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+        # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+        # val performs the cross product to get the orientation
+        # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+        val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
+        zero = torch.tensor(0.0, device=val.device)
+        return torch.where(
+            torch.abs(val) < 1e-8,
+            torch.tensor(0, device=val.device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+        )
+
+    def segment_intersects(p1, p2, q1, q2):
+        """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
+        o1 = orientation(p1, p2, q1)
+        o2 = orientation(p1, p2, q2)
+        o3 = orientation(q1, q2, p1)
+        o4 = orientation(q1, q2, p2)
+
+        # a general intersection test
+        general = (o1 != o2) & (o3 != o4)
+
+        return general 
+
+    all_connect_check = torch.ones(B, dtype=torch.bool, device=device)
+
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+
+    for wall in wall_list:
+        wx1, wy1 = wall.coords[0]
+        wx2, wy2 = wall.coords[1]
+
+        wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
+        wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
+
+        intersects = segment_intersects(nearnode, nextnode, wall_start, wall_end)
+
+        all_connect_check &= ~intersects  # Block if it intersects
+
+    return all_connect_check
+
+
+
+# define the nearnodes I expect this to return False, True, False, True, True, False, True, False, False, True, False
+# nearnode = torch.tensor([[0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5], [0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5]], dtype=torch.float, device=device)
+# nextnode = torch.tensor([[0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15], [0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15]], dtype=torch.float, device=device)
+
+
+
+
+
+# trials = 100
+# times = []
+# time_sum = 0
+
+# for iter in range(trials):
+#     t5 = time.time()
+#     ans = connectsTo4(nearnode, nextnode)
+#     t6 = time.time()
+#     time_diff3 = t6 - t5
+#     print(f'{ans}, time = {time_diff3}, this is the version that does not check for colinearity')
+#     times.append(time_diff3)
+#     time_sum += time_diff3
+
+# print(time_sum)
+# print(len(times))
+# average = time_sum/len(times)
+# print(f'Average time is {average}')
+
+# TIMING RESULTS
+# for 20 iterations, average_time = 0.01311178207397461
+# for 100 iterations, average_time = 0.010360038280487061
+
+
+# 20 ITERATIONS
+# bounding box average: 0.02207754850387573
+# all-walls-processed average: 0.02182776927947998
+
+# 100 ITERATIONS
+# Tried for 100 trials
+# bounding box average: 0.020766091346740723
+# all-walls-processed average: 0.018065853118896483
+
+
+
+
+
+# Thus, the best method seems to be removing the colinear checks
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+############ FREESPACE CHECKING!!!!!!!!!!!! ###########################################33
+
+
+
+
+# Next, I wanna rewrite the inFreespace() function using orientations
+def inFreespace2(next_node):
+
+    # Returns False if any of the conditions fails
+    in_bounds_mask = ((next_node[:,0] >= xmin) & (next_node[:,0] <= xmax)) | ((next_node[:,1] >= ymin) & (next_node[:,0] <= ymax))
+
+
+    B = next_node.shape[0]
+    
+    def orientation(p, q, r):
+        """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+        # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+        # val performs the cross product to get the orientation
+        # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+        val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
+        zero = torch.tensor(0.0, device=val.device)
+        return torch.where(
+            torch.abs(val) < 1e-8,
+            torch.tensor(0, device=val.device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+        )
+    
+    def on_segment(p, q, r):
+        """Check if point q lies on segment pr"""
+        return (
+            (q[:,0] <= torch.max(p[:,0], r[:,0])) & (q[:,0] >= torch.min(p[:,0], r[:,0])) &
+            (q[:,1] <= torch.max(p[:,1], r[:,1])) & (q[:,1] >= torch.min(p[:,1], r[:,1]))
+        )
+    
+    def segment_intersects(p2, q1, q2):
+        """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
+
+        o1 = orientation(q1, q2, p2)
+
+        # a general intersection test
+        general = (o1 == 0) & on_segment(q1, p2, q2)
+
+        return general 
+
+
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+
+    # start by assuming all are disjoint
+    all_disjoint_check = torch.ones(B, dtype=torch.bool, device=device)
+
+    for wall in wall_list:
+        wx1, wy1 = wall.coords[0]
+        wx2, wy2 = wall.coords[1]
+
+        wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
+        wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
+
+
+        # check if the nextnode intersects with the wall
+
+        # is True if intersecting-colinear and False otherwise
+        intersects = segment_intersects(next_node, wall_start, wall_end)
+
+        all_disjoint_check &= ~intersects  # Block if it intersects
+
+    return all_disjoint_check & in_bounds_mask
+
+def inFreespace1(next_node):
+
+    # Returns False if any of the conditions fails
+    in_bounds_mask = ((next_node[:,0] >= xmin) & (next_node[:,0] <= xmax)) | ((next_node[:,1] >= ymin) & (next_node[:,0] <= ymax))
+
+    # Everything in the mask evaluated to False. No survivors
+    if not in_bounds_mask.any():
+        return in_bounds_mask
+
+    # In the initializing, we assume that all the nodes are disjoint. the for loop tries to prove this wrong
+    all_walls_disjoint_mask = torch.ones(len(next_node), dtype=bool, device='cuda')
+
+    # check for intersection with the walls
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+    for wall in wall_list:
+        wall_coords = wall.coords
+        x1, y1, x2, y2 = wall_coords[0][0], wall_coords[0][1], wall_coords[1][0], wall_coords[1][1]
+
+        # first, check if the wall is vertical or not
+
+        # if the wall is vertical
+        if (x2-x1 == 0):
+            wall_intercept = 0
+            # if the wall is vertical, then the point and wall intersect if the point has the same x
+            # value and is between ymin and ymax of the wall
+
+
+            # in other words, the point and line are disjoint if they have different x values or if the y of the
+            # point is out of range of the line
+
+            # check the two cases where they are disjoint
+
+            # case 1: x-values are not equal
+            is_disjoint_mask1 = x1 != next_node[:,0]
+
+            # case 2: we-don't care about equality but the y-values are outside of the range
+            is_disjoint_mask2 = next_node[:,0] > max(y1, y2)
+            is_disjoint_mask3 = next_node[:,0] < min(y1, y2)
+
+            # so is_disjoint_mask = case 1 or case 2
+            is_disjoint_mask = is_disjoint_mask1 | (is_disjoint_mask2 & is_disjoint_mask3)
+
+        # the wall is not vertical
+        else:
+            wall_grad = (y2-y1)/(x2-x1)
+            wall_intercept = y1 - wall_grad * x1
+
+            # Returns true if they are disjoint and returns false if they intersect
+            is_disjoint_mask = (wall_grad * next_node[:,0] + wall_intercept) != (next_node[:,1])
+
+        all_walls_disjoint_mask = all_walls_disjoint_mask & is_disjoint_mask
+
+    return all_walls_disjoint_mask  & in_bounds_mask
+
+
+## Testing both methods
+test_nodes = torch.tensor([[6,8], [12,6], [15, 7], [13.5, 2.5], [18, 10], [20, 11], [32, 22], [23, 10], [5,5]], device=device)
+# From the freeSpace test, this should return [True, True, False, False, False, True, False, False, True]
+
+# # the last entry should be False because it's outside of the bounds of the box
+
+# free = inFreespace1(test_nodes)
+# print(test_nodes)
+# print(free)
+
+trials = 20
+times = []
+time_sum = 0
+
+for iter in range(trials):
+    t7 = time.time()
+    ans = inFreespace1(test_nodes)
+    t8 = time.time()
+    time_diff4 = t8 - t7
+    print(f'{ans}, time = {time_diff4}')
+    times.append(time_diff4)
+    time_sum += time_diff4
+
+print(time_sum)
+print(len(times))
+average = time_sum/len(times)
+print(f'Average time is {average}')
+
+
+
+"""
+TIMING RESULTS
+Using 20 trials
+Original inFreespace: 0.003776216506958008
+New inFreespace: 0.006662106513977051
+
+Using 100 trials
+Original inFreespace: 0.001591808795928955
+New inFreespace: 0.005331864356994629
+
+
+In both cases, the original version is twice the speed of the new version
+
+"""
