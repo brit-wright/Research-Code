@@ -267,7 +267,7 @@ def rrt(startnode, goalnode, visual):
     device = torch.device('cuda')   
 
     # Batch Size is basically the number of RRTs I want to have running in parallel
-    batch_size = 1
+    batch_size = 2
 
     # Now I'm defining node counts which basically tells us, how many nodes are in each tree
     # where it's one tree per batch
@@ -295,7 +295,7 @@ def rrt(startnode, goalnode, visual):
     tree_positions[:, 0, 0] = startnode.x
     tree_positions[:, 0, 1] = startnode.y
 
-
+    iter = 0
     ########### NOW LET'S GET TO WRITING THE addtotree FUNCTION ##################
     def addtotree(valid_batches, valid_nextnodes, nearest_indices):
         # start by assigning the parent of the new_node to be the nearnode
@@ -340,7 +340,7 @@ def rrt(startnode, goalnode, visual):
     
     ######### ENTER THE WHILE LOOP LOL #######################
     while True:
-        
+        iter += 1
         # Define the random.random() tensor
         random_tensor = torch.rand(batch_size, device=device)
 
@@ -466,7 +466,11 @@ def rrt(startnode, goalnode, visual):
 
         # call addtotree for only the valid batches and valid nodes
         addtotree(valid_batches, valid_nextnodes, valid_nearest)
-        print(node_counts)
+        
+        if(iter % 500 == 0):
+            print(f'Now at {iter} iterations')
+
+
         if valid_nextnodes.shape[0] == 0:
             continue
         
@@ -578,6 +582,7 @@ def rrt(startnode, goalnode, visual):
     # This path re-contruction is done not in GPU because it can't be done simultaneously
     # As a result, this means we need to convert nodecounts, tree_parents, and tree_positions
     # to numpy arrays
+    tf = time.time()
     print(node_counts)
     node_counts_cpu = node_counts.cpu().numpy()
     tree_parents_cpu = tree_parents.cpu().numpy()
@@ -586,7 +591,7 @@ def rrt(startnode, goalnode, visual):
     all_goal_batches_cpu = all_goal_batches.cpu().numpy()
     # Let's send all this stuff to a function outside of the rrt called buildPath
     all_paths = buildPath(goal_indices, tree_parents_cpu, tree_positions_cpu, batch_size, all_goal_batches_cpu)
-    return all_paths
+    return tf, all_paths
 
 
 def buildPath(goal_idx, node_parents, node_positions, batch_size, goal_batches):
@@ -664,8 +669,8 @@ def main():
     # Call the RRT function
     print('Running RRT')
     t0 = time.time()
-    paths = rrt(startnode, goalnode, visual)
-    tf = time.time()
+    tf, paths = rrt(startnode, goalnode, visual)
+    # tf = time.time()
     time_taken = tf-t0
     print(f'Time taken: {time_taken}')
 

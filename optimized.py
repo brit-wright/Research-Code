@@ -7,12 +7,8 @@ from scipy.spatial      import KDTree
 from shapely.geometry   import Point, LineString, Polygon, MultiPolygon, MultiLineString
 from shapely.prepared   import prep
 from vandercorput       import vandercorput
-
+import argparse
 import torch
-# # seed = int(random.random()*10000)
-seed = 3331
-random.seed(seed)
-# print(f"{seed=}")
 
 
 STEP_SIZE = 0.25
@@ -39,20 +35,21 @@ outside = LineString([[xmin, ymin], [xmax, ymin], [xmax, ymax],
 # Draw the interior walls that the mattress will have to move around
 wall1   = LineString([[xmin, yB], [xC, yB]])
 wall2   = LineString([[xD, yB], [xmax, yB]])
-wall3   = LineString([[xB, yC], [xC, yC], [xC, ymax]])
-wall4   = LineString([[xC, yB],[xC, yA]])
-wall5   = LineString([[xC, ymin], [xB, yA]])
+wall3   = LineString([[xB, yC], [xC, yC]])
+wall4   = LineString([[xC, yC], [xC, ymax]])
+wall5   = LineString([[xC, yB],[xC, yA]])
+wall6   = LineString([[xC, ymin], [xB, yA]])
 bonus   = LineString([[xD, yC], [xE, yC]])
 
 # Collect all the walls and prepare(?). I'm including the bonus wall because why not?
-walls = prep(MultiLineString([outside, wall1, wall2, wall3, wall4, wall5, bonus]))
+walls = prep(MultiLineString([outside, wall1, wall2, wall3, wall4, wall5, wall6, bonus]))
 # walls = prep(MultiLineString([outside, wall1, wall2, wall3]))
 
 # Define the start/goal states (x, y, theta) of the mattress
 (xstart, ystart) = (xA, yD)
 (xgoal, ygoal) = (5, 5)
 
-
+device='cuda'
 # Visualization Utility
 class Visualization:
     def __init__(self):
@@ -126,36 +123,136 @@ class Node:
     def distance(self, other):
         return dist(self.coordinates(), other.coordinates())
     
-# Freespace check function
-def inFreespace(nextnode_cpu_list):
-    # nextnode_cpu_list is a list of size batch_size which contains the (x, y) tuple
-    for i in range(0, len(nextnode_cpu_list)):
-        x, y = nextnode_cpu_list[i]
-        freespace = []
 
-        if (x <= xmin or x >= xmax or y <= ymin or y >= ymax):
-            freespace.append(False)
+def inFreespace(next_node):
+
+    # Returns False if any of the conditions fails
+    in_bounds_mask = ((next_node[:,0] >= xmin) & (next_node[:,0] <= xmax)) | ((next_node[:,1] >= ymin) & (next_node[:,0] <= ymax))
+
+    # Everything in the mask evaluated to False. No survivors
+    if not in_bounds_mask.any():
+        return in_bounds_mask
+
+    # In the initializing, we assume that all the nodes are disjoint. the for loop tries to prove this wrong
+    all_walls_disjoint_mask = torch.ones(len(next_node), dtype=bool, device='cuda')
+
+    # check for intersection with the walls
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+    for wall in wall_list:
+        wall_coords = wall.coords
+        x1, y1, x2, y2 = wall_coords[0][0], wall_coords[0][1], wall_coords[1][0], wall_coords[1][1]
+
+        # first, check if the wall is vertical or not
+
+        # if the wall is vertical
+        if (x2-x1 == 0):
+            wall_intercept = 0
+            # if the wall is vertical, then the point and wall intersect if the point has the same x
+            # value and is between ymin and ymax of the wall
+
+
+            # in other words, the point and line are disjoint if they have different x values or if the y of the
+            # point is out of range of the line
+
+            # check the two cases where they are disjoint
+
+            # case 1: x-values are not equal
+            is_disjoint_mask1 = x1 != next_node[:,0]
+
+            # case 2: we-don't care about equality but the y-values are outside of the range
+            is_disjoint_mask2 = next_node[:,0] > max(y1, y2)
+            is_disjoint_mask3 = next_node[:,0] < min(y1, y2)
+
+            # so is_disjoint_mask = case 1 or case 2
+            is_disjoint_mask = is_disjoint_mask1 | (is_disjoint_mask2 & is_disjoint_mask3)
+
+        # the wall is not vertical
         else:
-            freespace.append(walls.disjoint(Point(x,y)))
-    freespace_list = np.array(freespace)
-    return(freespace_list)
+            wall_grad = (y2-y1)/(x2-x1)
+            wall_intercept = y1 - wall_grad * x1
 
-def connectsTo(nearnode_cpu_list, nextnode_cpu_list):
-    connects = []
-    for i in range(0,len(nearnode_cpu_list)):
-        x1, y1 = nearnode_cpu_list[i]
-        x2, y2 = nextnode_cpu_list[i]
+            # Returns true if they are disjoint and returns false if they intersect
+            is_disjoint_mask = (wall_grad * next_node[:,0] + wall_intercept) != (next_node[:,1])
 
-        line = LineString([(x1, y1), (x2, y2)])
+        all_walls_disjoint_mask = all_walls_disjoint_mask & is_disjoint_mask
 
-        ans = walls.disjoint(line)
-        connects.append(ans)
-    connects_list = np.array(connects)
-    return connects_list
+    return all_walls_disjoint_mask & is_disjoint_mask & in_bounds_mask
+
+
+def connectsTo(nearnode, nextnode):
+    """
+    Returns a boolean tensor indicating which node pairs can connect without intersecting walls.
+    
+    Inputs:
+    - nearnode: (B, 2) tensor of start points
+    - nextnode: (B, 2) tensor of end points
+    
+    Output:
+    - (B,) boolean tensor: True if the segment is not blocked, False if it intersects any wall
+    """
+
+    
+    B = nearnode.shape[0]
+    
+    def orientation(p, q, r):
+        """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+        # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+        # val performs the cross product to get the orientation
+        # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+        val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
+        zero = torch.tensor(0.0, device=val.device)
+        return torch.where(
+            torch.abs(val) < 1e-8,
+            torch.tensor(0, device=val.device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+        )
+
+    def on_segment(p, q, r):
+        """Check if point q lies on segment pr"""
+        return (
+            (q[:,0] <= torch.max(p[:,0], r[:,0])) & (q[:,0] >= torch.min(p[:,0], r[:,0])) &
+            (q[:,1] <= torch.max(p[:,1], r[:,1])) & (q[:,1] >= torch.min(p[:,1], r[:,1]))
+        )
+
+    def segment_intersects(p1, p2, q1, q2):
+        """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
+        o1 = orientation(p1, p2, q1)
+        o2 = orientation(p1, p2, q2)
+        o3 = orientation(q1, q2, p1)
+        o4 = orientation(q1, q2, p2)
+
+        # a general intersection test
+        general = (o1 != o2) & (o3 != o4)
+
+        # check if the lines are colinear and overlap/touch
+        col1 = (o1 == 0) & on_segment(p1, q1, p2)
+        col2 = (o2 == 0) & on_segment(p1, q2, p2)
+        col3 = (o3 == 0) & on_segment(q1, p1, q2)
+        col4 = (o4 == 0) & on_segment(q1, p2, q2)
+
+        return general | col1 | col2 | col3 | col4
+
+    all_connect_check = torch.ones(B, dtype=torch.bool, device=device)
+
+    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+
+    for wall in wall_list:
+        wx1, wy1 = wall.coords[0]
+        wx2, wy2 = wall.coords[1]
+
+        wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
+        wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
+
+        intersects = segment_intersects(nearnode, nextnode, wall_start, wall_end)
+
+        all_connect_check &= ~intersects  # Block if it intersects
+
+    return all_connect_check    
+
 
 # RRT Function
 
-def rrt(startnode, goalnode, visual):
+def rrt(startnode, goalnode, visual, batch_size):
     
     # Leaving many more comments because I'm genuinely confused lol
 
@@ -163,9 +260,6 @@ def rrt(startnode, goalnode, visual):
 
     # first we need to indicate that we're changing the processing/device from CPU to GPU (cuda)
     device = torch.device('cuda')   
-
-    # Batch Size is basically the number of RRTs I want to have running in parallel
-    batch_size = 1
 
     # Now I'm defining node counts which basically tells us, how many nodes are in each tree
     # where it's one tree per batch
@@ -333,23 +427,22 @@ def rrt(startnode, goalnode, visual):
         # right now, nextnode contains the coordinates for each batch
         # we can convert this tensor into a numpy array
 
-        nextnode_cpu = nextnode.cpu().numpy()
+        
 
         # freespace_mask_cpu is a numpy array
-        freespace_mask_cpu = inFreespace(nextnode_cpu)
+        freespace_mask = inFreespace(nextnode)
 
         # convert the numpy array to a tensor
-        freespace_mask = torch.from_numpy(freespace_mask_cpu).to(device)
+        
 
         # next, we have to check if the nearnode connects to the nextnode
         # we follow a similar procesure where we first convert the nearnode tensor into a numpy array
-        nearnode_cpu = nearnode.cpu().numpy()
+        
 
         # then we send the nearnode numpy array and the nextnode numpy array to the connectsTo function
-        connects_mask_cpu = connectsTo(nearnode_cpu, nextnode_cpu)
+        connects_mask = connectsTo(nearnode, nextnode)
 
-        # convert the connects mask to a GPU tensor
-        connects_mask = torch.from_numpy(connects_mask_cpu).to(device)
+       
 
         # next we need to combine the masks to see, for each batch, whether the node found is valid
         next_valid_mask = freespace_mask & connects_mask & active_batches
@@ -366,8 +459,9 @@ def rrt(startnode, goalnode, visual):
         # call addtotree for only the valid batches and valid nodes
         addtotree(valid_batches, valid_nextnodes, valid_nearest)
         
-        if(iter % 500 == 0):
-            print(f'Now at {iter} iterations')
+        # if(iter % 500 == 0):
+        #     print(f'Now at {iter} iterations')
+
 
         if valid_nextnodes.shape[0] == 0:
             continue
@@ -396,16 +490,13 @@ def rrt(startnode, goalnode, visual):
         # Next we must create another mesh that tests whether the valid nextnode connects to the 
         # goalnode
 
-        # convert the tensor of valid nextnodes to numpy array
-        valid_nextnodes_cpu = valid_nextnodes.cpu().numpy()
+    
 
-        # conver the tensor of valid goals to a numpy array as well
-        possible_goal_cpu = possible_goal.cpu().numpy()
+      
 
-        goal_connects_mask_cpu = connectsTo(valid_nextnodes_cpu, possible_goal_cpu)
+        goal_connects_mask = connectsTo(valid_nextnodes, possible_goal)
 
-        # convert the goal connection mask to a tensor
-        goal_connects_mask = torch.from_numpy(goal_connects_mask_cpu).to(device)
+    
 
         # compare both masks
         # print('Check mask types')
@@ -553,51 +644,36 @@ def PostProcess(path):
 
 # MAIN
 def main():
-    print('Running with step size ', STEP_SIZE, ' and up to ', NMAX, ' nodes.')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
 
-    # Create the figure
-    visual = Visualization()
+    global seed
+    seed = args.seed
+    random.seed(seed)
+    torch.manual_seed(seed)
 
-    # Create the start and goal nodes
+    global batch_size
+    batch_size = args.batch_size
+
+    visual = Visualization() if args.visualize else None
     startnode = Node(xstart, ystart)
     goalnode = Node(xgoal, ygoal)
 
-    # Visualize the start and goal nodes
-    visual.drawNode(startnode, color='orange', marker='o')
-    visual.drawNode(goalnode, color='purple', marker='o')
-    visual.show('Showing basic world') 
+    if visual:
+        visual.drawNode(startnode, color='orange', marker='o')
+        visual.drawNode(goalnode, color='purple', marker='o')
+        visual.show('Showing basic world') 
 
-    # Call the RRT function
-    print('Running RRT')
     t0 = time.time()
-    tf, paths = rrt(startnode, goalnode, visual)
-    # tf = time.time()
-    time_taken = tf-t0
-    print(f'Time taken: {time_taken}')
+    tf, paths = rrt(startnode, goalnode, visual, batch_size)
+    time_taken = tf - t0
 
-    # If unable to connect path, note this
-    if not paths:
-        visual.show('NO PATHS FOUND')
-        return
-    
-    # Otherwise, show the path created
-    # colors = ['r', 'b', 'g', 'y','r', 'b', 'g', 'y','r', 'b', 'g', 'y','r', 'b', 'g', 'y']
-    index = 0
-    for batch_num, path in enumerate(paths):
-        if path:
-            visual.drawPath(path, color='r', linewidth=1)
-            visual.show(f'Showing the raw path for batch {batch_num}')
-            index += 1
-        else:
-            print(f'No path found for batch {batch_num}')
+    # ONLY output the time, so the calling script can parse it
+    print(time_taken)
 
-
-    # Post-process the path
-    # PostProcess(path)
-        
-    # Show the post-processed path
-    # visual.drawPath(paths, color='b', linewidth=2)
-    # visual.show('Showing the post-processed path')
 
 if __name__ == "__main__":
     main()

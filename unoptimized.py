@@ -7,12 +7,9 @@ from scipy.spatial      import KDTree
 from shapely.geometry   import Point, LineString, Polygon, MultiPolygon, MultiLineString
 from shapely.prepared   import prep
 from vandercorput       import vandercorput
-
+import argparse
 import torch
-# # seed = int(random.random()*10000)
-seed = 3331
-random.seed(seed)
-# print(f"{seed=}")
+
 
 
 STEP_SIZE = 0.25
@@ -155,7 +152,7 @@ def connectsTo(nearnode_cpu_list, nextnode_cpu_list):
 
 # RRT Function
 
-def rrt(startnode, goalnode, visual):
+def rrt(startnode, goalnode, visual, batch_size):
     
     # Leaving many more comments because I'm genuinely confused lol
 
@@ -164,8 +161,6 @@ def rrt(startnode, goalnode, visual):
     # first we need to indicate that we're changing the processing/device from CPU to GPU (cuda)
     device = torch.device('cuda')   
 
-    # Batch Size is basically the number of RRTs I want to have running in parallel
-    batch_size = 1
 
     # Now I'm defining node counts which basically tells us, how many nodes are in each tree
     # where it's one tree per batch
@@ -366,8 +361,8 @@ def rrt(startnode, goalnode, visual):
         # call addtotree for only the valid batches and valid nodes
         addtotree(valid_batches, valid_nextnodes, valid_nearest)
         
-        if(iter % 500 == 0):
-            print(f'Now at {iter} iterations')
+        # if(iter % 500 == 0):
+        #     print(f'Now at {iter} iterations')
 
         if valid_nextnodes.shape[0] == 0:
             continue
@@ -553,51 +548,35 @@ def PostProcess(path):
 
 # MAIN
 def main():
-    print('Running with step size ', STEP_SIZE, ' and up to ', NMAX, ' nodes.')
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--batch_size", type=int, default=1)
+    parser.add_argument("--visualize", action="store_true")
+    args = parser.parse_args()
 
-    # Create the figure
-    visual = Visualization()
+    global seed
+    seed = args.seed
+    random.seed(seed)
+    torch.manual_seed(seed)
 
-    # Create the start and goal nodes
+    global batch_size
+    batch_size = args.batch_size
+
+    visual = Visualization() if args.visualize else None
     startnode = Node(xstart, ystart)
     goalnode = Node(xgoal, ygoal)
 
-    # Visualize the start and goal nodes
-    visual.drawNode(startnode, color='orange', marker='o')
-    visual.drawNode(goalnode, color='purple', marker='o')
-    visual.show('Showing basic world') 
+    if visual:
+        visual.drawNode(startnode, color='orange', marker='o')
+        visual.drawNode(goalnode, color='purple', marker='o')
+        visual.show('Showing basic world') 
 
-    # Call the RRT function
-    print('Running RRT')
     t0 = time.time()
-    tf, paths = rrt(startnode, goalnode, visual)
-    # tf = time.time()
-    time_taken = tf-t0
-    print(f'Time taken: {time_taken}')
+    tf, paths = rrt(startnode, goalnode, visual, batch_size)
+    time_taken = tf - t0
 
-    # If unable to connect path, note this
-    if not paths:
-        visual.show('NO PATHS FOUND')
-        return
-    
-    # Otherwise, show the path created
-    # colors = ['r', 'b', 'g', 'y','r', 'b', 'g', 'y','r', 'b', 'g', 'y','r', 'b', 'g', 'y']
-    index = 0
-    for batch_num, path in enumerate(paths):
-        if path:
-            visual.drawPath(path, color='r', linewidth=1)
-            visual.show(f'Showing the raw path for batch {batch_num}')
-            index += 1
-        else:
-            print(f'No path found for batch {batch_num}')
-
-
-    # Post-process the path
-    # PostProcess(path)
-        
-    # Show the post-processed path
-    # visual.drawPath(paths, color='b', linewidth=2)
-    # visual.show('Showing the post-processed path')
+    # ONLY output the time, so the calling script can parse it
+    print(time_taken)
 
 if __name__ == "__main__":
     main()
