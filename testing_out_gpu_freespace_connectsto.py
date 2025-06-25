@@ -642,7 +642,7 @@ def connectsTo3(nearnode, nextnode):
 
     return all_connect_check
 
-# define the nearnodes I expect this to return False, True, False, True, True, False, True, False, False, True, False
+# # define the nearnodes I expect this to return False, True, False, True, True, False, True, False, False, True, False
 # nearnode = torch.tensor([[0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5], [0,0], [1,2], [5,2], [0,0], [2,0], [15,6], [13,8], [12,8], [0,10], [18,5], [25,5]], dtype=torch.float, device=device)
 # nextnode = torch.tensor([[0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15], [0,10], [5,5], [15,4], [0,5], [2,2], [15,8], [13,4], [16,8], [5,10], [22,5], [25,15]], dtype=torch.float, device=device)
 

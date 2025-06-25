@@ -1,3 +1,5 @@
+### TENSORIZED AND PRE-PROCESSED WALLS
+
 import matplotlib.pyplot as plt
 import numpy as np
 import random
@@ -46,6 +48,18 @@ wall5   = LineString([[xC, yB],[xC, yA]])
 wall6   = LineString([[xC, ymin], [xB, yA]])
 bonus   = LineString([[xD, yC], [xE, yC]])
 
+device='cuda'
+twall1   = [[xmin, yB], [xC, yB]]
+twall2   = [[xD, yB], [xmax, yB]]
+twall3   = [[xB, yC], [xC, yC]]
+twall4   = [[xC, yC], [xC, ymax]]
+twall5   = [[xC, yB],[xC, yA]]
+twall6   = [[xC, ymin], [xB, yA]]
+tbonus   = [[xD, yC], [xE, yC]]
+twalls = [twall1, twall2, twall3, twall4, twall5, twall6, tbonus]
+wall_coords = torch.tensor([[[twall[0][0],twall[0][1]], [twall[1][0],twall[1][1]]] for twall in twalls], dtype=torch.float, device=device)
+W = wall_coords.shape[0]
+
 # Collect all the walls and prepare(?). I'm including the bonus wall because why not?
 walls = prep(MultiLineString([outside, wall1, wall2, wall3, wall4, wall5, wall6, bonus]))
 # walls = prep(MultiLineString([outside, wall1, wall2, wall3]))
@@ -54,7 +68,7 @@ walls = prep(MultiLineString([outside, wall1, wall2, wall3, wall4, wall5, wall6,
 (xstart, ystart) = (xA, yD)
 (xgoal, ygoal) = (5, 5)
 
-device='cuda'
+
 # Visualization Utility
 class Visualization:
     def __init__(self):
@@ -128,61 +142,50 @@ class Node:
     def distance(self, other):
         return dist(self.coordinates(), other.coordinates())
     
-
+# Converting the vectorized (orientation-version of) Freespace function into tensor logic
 def inFreespace(next_node):
 
     # Returns False if any of the conditions fails
-    in_bounds_mask = ((next_node[:,0] >= xmin) & (next_node[:,0] <= xmax)) | ((next_node[:,1] >= ymin) & (next_node[:,1] <= ymax))
+    in_bounds_mask = ((next_node[:,0] >= xmin) & (next_node[:,0] <= xmax)) & ((next_node[:,1] >= ymin) & (next_node[:,1] <= ymax))
+    B = next_node.shape[0]
+    
+    p2 = next_node.unsqueeze(1).expand(-1, W, -1) # This is supposed to change the dimension of nextnode to (B, W, 2)
+    # also want to change the wall coords to have the same (B, W, 2) shape
+    # the shape of wall_coords is, by default, (W, 2, 2)
 
-    # Everything in the mask evaluated to False. No survivors
-    if not in_bounds_mask.any():
-        return in_bounds_mask
+    # We separate the walls into their end-points q1 and q1. We then want to unsqueeze and expand each in order to 
+    # get the (B, W, 2) shape. Note that unsqueeze(0) gives the shape [1, 7, 2]. Expansing (B, -1, -1) means that we 
+    # wanna change the first dimension to B and leave the other dimensions as they are
 
-    # In the initializing, we assume that all the nodes are disjoint. the for loop tries to prove this wrong
-    all_walls_disjoint_mask = torch.ones(len(next_node), dtype=bool, device='cuda')
+    q1 = wall_coords[:,0,:].unsqueeze(0).expand(B, -1, -1)
+    q2 = wall_coords[:,1,:].unsqueeze(0).expand(B, -1, -1)
+    
+    def orientation(p, q, r):
+        """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
+        # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
+        # val performs the cross product to get the orientation
+        # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
+        val = (q[:,:,1] - p[:,:,1]) * (r[:,:,0] - q[:,:,0]) - (q[:,:,0] - p[:,:,0]) * (r[:,:,1] - q[:,:,1])
+        return torch.where(
+            torch.abs(val) < 1e-8,
+            torch.tensor(0, device=val.device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+        )
+    
+    
+    def on_segment(p, q, r):
+        """Check if point q lies on segment pr"""
+        return (
+            (q[:,:,0] <= torch.max(p[:,:,0], r[:,:,0])) & (q[:,:,0] >= torch.min(p[:,:,0], r[:,:,0])) &
+            (q[:,:,1] <= torch.max(p[:,:,1], r[:,:,1])) & (q[:,:,1] >= torch.min(p[:,:,1], r[:,:,1]))
+        )
 
-    # check for intersection with the walls
-    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
-    for wall in wall_list:
-        wall_coords = wall.coords
-        x1, y1, x2, y2 = wall_coords[0][0], wall_coords[0][1], wall_coords[1][0], wall_coords[1][1]
-
-        # first, check if the wall is vertical or not
-
-        # if the wall is vertical
-        if (x2-x1 == 0):
-            wall_intercept = 0
-            # if the wall is vertical, then the point and wall intersect if the point has the same x
-            # value and is between ymin and ymax of the wall
-
-
-            # in other words, the point and line are disjoint if they have different x values or if the y of the
-            # point is out of range of the line
-
-            # check the two cases where they are disjoint
-
-            # case 1: x-values are not equal
-            is_disjoint_mask1 = x1 != next_node[:,0]
-
-            # case 2: we-don't care about equality but the y-values are outside of the range
-            is_disjoint_mask2 = next_node[:,0] > max(y1, y2)
-            is_disjoint_mask3 = next_node[:,0] < min(y1, y2)
-
-            # so is_disjoint_mask = case 1 or case 2
-            is_disjoint_mask = is_disjoint_mask1 | (is_disjoint_mask2 & is_disjoint_mask3)
-
-        # the wall is not vertical
-        else:
-            wall_grad = (y2-y1)/(x2-x1)
-            wall_intercept = y1 - wall_grad * x1
-
-            # Returns true if they are disjoint and returns false if they intersect
-            is_disjoint_mask = (wall_grad * next_node[:,0] + wall_intercept) != (next_node[:,1])
-
-        all_walls_disjoint_mask = all_walls_disjoint_mask & is_disjoint_mask
-
-    return all_walls_disjoint_mask & is_disjoint_mask & in_bounds_mask
-
+    o1 = orientation(q1, q2, p2)
+    # a general intersection test
+    # (o1 == 0) means there is colinearity and on_segment means there's overlap. --> True means not in Freespace
+    intersects = (o1 == 0) & on_segment(q1, p2, q2)
+    wall_intersect = intersects.any(dim=1)
+    return ~wall_intersect & in_bounds_mask
 
 def connectsTo(nearnode, nextnode):
     """
@@ -195,53 +198,96 @@ def connectsTo(nearnode, nextnode):
     Output:
     - (B,) boolean tensor: True if the segment is not blocked, False if it intersects any wall
     """
-
-    
     B = nearnode.shape[0]
-    
+
+    # Let's go back to our everything True assumption
+
+    # Okay this is the weird part. Basically need to do some re-sizing to prep for broadcasting 
+    # so that dimensions can become compatible.
+
+    # Overall, we want to expand to the shape (B, W, 2) in order to compare the Batches to the Walls
+
+    p1 = nearnode.unsqueeze(1).expand(-1, W, -1) # This is supposed to change the dimension of nearnode to (B, W, 2)
+    p2 = nextnode.unsqueeze(1).expand(-1, W, -1) # This is supposed to change the dimension of nextnode to (B, W, 2)
+
+    # also want to change the wall coords to have the same (B, W, 2) shape
+    # the shape of wall_coords is, by default, (W, 2, 2)
+
+    # We separate the walls into their end-points q1 and q1. We then want to unsqueeze and expand each in order to 
+    # get the (B, W, 2) shape. Note that unsqueeze(0) gives the shape [B, W, 2]. Expanding (B, -1, -1) means that we 
+    # wanna change the first dimension to B and leave the other dimensions as they are
+
+    q1 = wall_coords[:,0,:].unsqueeze(0).expand(B, -1, -1) # this contains one endpoint, has shape (B, W, 2)
+    q2 = wall_coords[:,1,:].unsqueeze(0).expand(B, -1, -1) # contains the other endpoint, has shape (B, W, 2)
+
+    # let's try the bounding box method...
+
+    # Wall: define minimum and maximum wall coordinates
+    wall_mins = wall_coords.min(dim=1).values  # should be of shape (W,2)
+    wall_maxs = wall_coords.max(dim=1).values  # should be of shape (W,2)
+
+    # Wall: expand the min and max for broadcasting
+    wall_mins_e = wall_mins.unsqueeze(0).expand(B, -1, -1)  # should be of shape (B, W, 2)
+    wall_maxs_e = wall_maxs.unsqueeze(0).expand(B, -1, -1)  # should be of shape (B, W, 2)
+
+    # Nodes: define the minimum and maximum coordinates
+    seg_mins = torch.minimum(p1, p2) # Shape is B, W, 2
+    seg_maxs = torch.maximum(p1, p2) # Shape is B, W, 2
+
+    # Define the bounding box mask. If any entry in disjoint mask is true, it means we know for sure
+    # that this wall will not intersect (without having to call the orientation function on it)
+
+    disjoint_mask = (
+        (seg_maxs[:,:,0] < wall_mins_e[:,:,0]) |
+        (seg_mins[:,:,0] > wall_maxs_e[:,:,0]) |
+        (seg_maxs[:,:,1] < wall_mins_e[:,:,1]) |
+        (seg_mins[:,:,1] > wall_maxs_e[:,:,1])
+    )
+
+    valid_mask = ~disjoint_mask # True means that the wall should be processed
+
+    # We now go into vectorizing the orientation operation. Each parameter passed into orientation should have shape
+    # (B, W, 2)
     def orientation(p, q, r):
         """Return orientation of triplet (p, q, r) as 0, 1, or 2"""
         # 0 --> colinear, 1 --> clockwise turn, 2 --> counterclockwise turn
         # val performs the cross product to get the orientation
         # val == 0 --> colinear, val > 0 --> clockwise, val < 0 --> counterclockwise
         val = (q[:,1] - p[:,1]) * (r[:,0] - q[:,0]) - (q[:,0] - p[:,0]) * (r[:,1] - q[:,1])
-        zero = torch.tensor(0.0, device=val.device)
+        
         return torch.where(
             torch.abs(val) < 1e-8,
-            torch.tensor(0, device=val.device),  # colinear
-            torch.where(val > 0, torch.tensor(1, device=val.device), torch.tensor(2, device=val.device))  # clockwise/counterclockwise
+            torch.tensor(0, device=device),  # colinear
+            torch.where(val > 0, torch.tensor(1, device=device), torch.tensor(2, device=device))  # clockwise/counterclockwise
         )
+    
+    """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
 
-    def segment_intersects(p1, p2, q1, q2):
-        """Returns a (B,) boolean tensor if segment p1-p2 intersects q1-q2"""
-        o1 = orientation(p1, p2, q1)
-        o2 = orientation(p1, p2, q2)
-        o3 = orientation(q1, q2, p1)
-        o4 = orientation(q1, q2, p2)
+    # Need to re-define p1, p2, q1, q2 with valid_mask applied
+    b_idx, w_idx = torch.nonzero(valid_mask, as_tuple=True) # returns the batch and wall indices where valid_mask is True
 
-        # a general intersection test
-        general = (o1 != o2) & (o3 != o4)
+    # Get the masked p1, p2, q1, q2 tensors
+    p1_masked = p1[b_idx, w_idx]
+    p2_masked = p2[b_idx, w_idx]
+    q1_masked = q1[b_idx, w_idx]
+    q2_masked = q2[b_idx, w_idx]
 
 
-        return general 
+    # Apply the disjoint mask to p1, p2, p3, p4 so that irrelevant walls don't get processed
 
-    all_connect_check = torch.ones(B, dtype=torch.bool, device=device)
+    o1 = orientation(p1_masked, p2_masked, q1_masked)
+    o2 = orientation(p1_masked, p2_masked, q2_masked)
+    o3 = orientation(q1_masked, q2_masked, p1_masked)
+    o4 = orientation(q1_masked, q2_masked, p2_masked)
 
-    wall_list = [wall1, wall2, wall3, wall4, wall5, wall6, bonus]
+    intersects = (o1 != o2) & (o3 != o4) # shape is (b, w). True if line intersects with wall
 
-    for wall in wall_list:
-        wx1, wy1 = wall.coords[0]
-        wx2, wy2 = wall.coords[1]
+    result = torch.ones(B, dtype=torch.bool, device=device)
 
-        wall_start = torch.tensor([wx1, wy1], device=device).expand(B, 2)
-        wall_end   = torch.tensor([wx2, wy2], device=device).expand(B, 2)
-
-        intersects = segment_intersects(nearnode, nextnode, wall_start, wall_end)
-
-        all_connect_check &= ~intersects  # Block if it intersects
-
-    return all_connect_check    
-
+    if intersects.any():    # if any entry in intersect is True
+        batch_collide = b_idx[intersects] # define batch_collide as the batch_indices where there are node-wall collisions
+        result[batch_collide] = False # for those batches, connectsTo is False
+    return result
 
 # RRT Function
 
