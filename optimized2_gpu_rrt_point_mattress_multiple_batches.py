@@ -7,7 +7,7 @@ from scipy.spatial      import KDTree
 from shapely.geometry   import Point, LineString, Polygon, MultiPolygon, MultiLineString
 from shapely.prepared   import prep
 from vandercorput       import vandercorput
-
+import cProfile
 import torch
 # seed = int(random.random()*10000)
 # seed = 9676
@@ -255,7 +255,7 @@ def rrt(startnode, goalnode, visual):
     device = torch.device('cuda')   
 
     # Batch Size is basically the number of RRTs I want to have running in parallel
-    batch_size = 2
+    batch_size = 1
 
     # Now I'm defining node counts which basically tells us, how many nodes are in each tree
     # where it's one tree per batch
@@ -687,4 +687,5 @@ def main():
     # visual.show('Showing the post-processed path')
 
 if __name__ == "__main__":
-    main()
+    # main()
+    cProfile.run('main()')

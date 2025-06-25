@@ -9,6 +9,7 @@ from shapely.prepared   import prep
 from vandercorput       import vandercorput
 
 import torch
+import cProfile
 # # seed = int(random.random()*10000)
 seed = 3331
 random.seed(seed)
@@ -591,7 +592,7 @@ def main():
         else:
             print(f'No path found for batch {batch_num}')
 
-
+    
     # Post-process the path
     # PostProcess(path)
         
@@ -600,4 +601,5 @@ def main():
     # visual.show('Showing the post-processed path')
 
 if __name__ == "__main__":
-    main()
+    # main()
+    cProfile.run('main()')
