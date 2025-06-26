@@ -2,8 +2,8 @@ import subprocess
 import matplotlib.pyplot as plt
 import random
 
-# batch_sizes = [10, 100, 500, 1000]
-batch_sizes = [1]
+batch_sizes = [10, 100, 500, 1000]
+# batch_sizes = [1]
 optimized_times = []
 unoptimized_times = []
 
@@ -29,7 +29,7 @@ for batch in batch_sizes:
     unopt = subprocess.run(["python", "unoptimized.py", "--seed", str(seed), "--batch_size", str(batch)], capture_output=True, text=True)
     print(f'Finished processing unoptimal. Time taken = {unopt}')
 
-    opt = subprocess.run(["python", "optimized.py", "--seed", str(seed), "--batch_size", str(batch)], capture_output=True, text=True)
+    opt = subprocess.run(["python", "optimized3.py", "--seed", str(seed), "--batch_size", str(batch)], capture_output=True, text=True)
     print(f'Finished processing optimal. Time taken = {opt}')
 
     optimized_time = float(opt.stdout.strip().splitlines()[-1])
