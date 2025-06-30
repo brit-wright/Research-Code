@@ -55,3 +55,17 @@ def build_circles(num_circles):
         # print(circle_coords)
 
     return circle_list
+
+
+def c_overlaps(test_data, circle_data):
+    overlaps = False
+
+    for circle in circle_data:
+
+        distance = sqrt((test_data[0][0] - circle[0][0])**2 + (test_data[0][1] - circle[0][1])**2)
+        distance_threshold = test_data[1] + circle[1]
+
+        if distance < distance_threshold - 1:
+            return True
+
+    return False

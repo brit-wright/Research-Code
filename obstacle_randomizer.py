@@ -65,9 +65,9 @@ while ((abs(x1 - x2) <= 40 or abs(y1 - y2) <= 40) or (abs(x1 - x2) > 60 or abs(y
     x2 = int(random.random() * 100)
     y2 = int(random.random() * 100)
 
-print(x1, x2, y1, y2)
-print(abs(x1 - x2))
-print(abs(y1 - y2))
+# print(x1, x2, y1, y2)
+# print(abs(x1 - x2))
+# print(abs(y1 - y2))
 
 
 xmin = min(x1, x2)
@@ -79,15 +79,17 @@ ymax = max(y1, y2)
 (xA, xB, xC) = ( 5, 12, 15)
 (yA, yB, yC)     = ( 5, 10, 12)
 
-xlabels = (xmin, xA, xB, xC, xmax)
-ylabels = (ymin, yA, yB, yC, ymax)
+# xlabels = (xmin, xA, xB, xC, xmax)
+xlabels = list(range(xmin, xmax+1, 2))
+# ylabels = (ymin, yA, yB, yC, ymax)
+ylabels = list(range(ymin, ymax+1, 2))
 
 tl = [xmin, ymax]
 tr = [xmax, ymax]
 bl = [xmin, ymin]
 br = [xmax, ymin]
 
-print(tl, tr, bl, br)
+# print(tl, tr, bl, br)
 
 ########################## INNER OBSTACLES #########################
 
@@ -104,7 +106,6 @@ def rectangles_overlap(min_x, min_y, max_x, max_y, existing_min_x, existing_min_
     # if anything in the parentheses is True, then it means overall that there is no overlap
     # so then rectangles_overlap is false
     return not (max_x <= existing_min_x or min_x >= existing_max_x or max_y <= existing_min_y or min_y >= existing_max_y)
-
 
 def r_overlaps(rx1, rx2, ry1, ry2, rtr_list, rtl_list, rbr_list, rbl_list):
     
@@ -130,6 +131,7 @@ def r_overlaps(rx1, rx2, ry1, ry2, rtr_list, rtl_list, rbr_list, rbl_list):
 
 def build_rectangles(num_rectangles):
     rectangle_list = []
+    rectangle_coords_list = []
     rbr_list = []
     rbl_list = []
     rtl_list = []
@@ -141,20 +143,13 @@ def build_rectangles(num_rectangles):
         ry1 = int(random.random() * (ymax - ymin) + ymin)
         ry2 = int(random.random() * (ymax - ymin) + ymin)
 
-        # print(x1, x2, y1, y2)
-        # print(abs(x1 - x2))
-        # print(abs(y1 - y2))
-        print(xmax, ymax)
-        while ((abs(rx1 - rx2) <= 2 or abs(ry1 - ry2) <= 2) or (abs(rx1 - rx2) > 12 or abs(ry1 - ry2) > 10) 
+        # print(xmax, ymax)
+        while ((abs(rx1 - rx2) <= 2 or abs(ry1 - ry2) <= 2) or (abs(rx1 - rx2) > 6 or abs(ry1 - ry2) > 6) 
             or (min(rx1, rx2) < xmin) or (max(rx1, rx2) > xmax) or (min(ry1, ry2) < ymin) or (max(ry1, ry2) > ymax) or r_overlaps(rx1, rx2, ry1, ry2, rtr_list, rtl_list, rbr_list, rbl_list)):
             rx1 = int(random.random() * (xmax - xmin) + xmin)
             rx2 = int(random.random() * (xmax - xmin) + xmin)
             ry1 = int(random.random() * (ymax - ymin) + ymin)
             ry2 = int(random.random() * (ymax - ymin) + ymin)
-
-        print(rx1, rx2, ry1, ry2)
-        print(abs(rx1 - rx2))
-        print(abs(ry1 - ry2))
 
         rxmin = min(rx1, rx2)
         rxmax = max(rx1, rx2)
@@ -166,8 +161,6 @@ def build_rectangles(num_rectangles):
         rbl = [rxmin, rymin]
         rbr = [rxmax, rymin]
 
-        print(rtl, rtr, rbl, rbr)
-
         rectangle = LineString([rbl, rbr, rtr, rtl, rbl])
 
         rbl_list.append(rbl)
@@ -177,29 +170,32 @@ def build_rectangles(num_rectangles):
 
         rectangle_list.append(rectangle)
 
-    return rectangle_list
+    # create a coordinates list for the sides of the rectangle
+    # start with the top line
+    # print(f'length of rb_list is {len(rbl_list)}')
+    for r_index in range(len(rbl_list)):
+        rectangle_coords = []
+        # find the coordinates of the top and bottom lines
+        rtx = rtl_list[r_index][0] # the x-coordinate of the top-left line
 
-def circle_rectangle_overlap(center, radius, rbl, rbr, rtr, rtl, buffer=1.0):
-    cx, cy = center
-    rect_xmin = min(rbl[0], rtl[0]) - buffer
-    rect_xmax = max(rbr[0], rtr[0]) + buffer
-    rect_ymin = min(rbl[1], rbr[1]) - buffer
-    rect_ymax = max(rtl[1], rtr[1]) + buffer
+        while rtx != rtr_list[r_index][0] + 1:
+            rectangle_coords.append((rtx, rtl_list[r_index][1]))
+            rectangle_coords.append((rtx, rbl_list[r_index][1]))
+            rtx += 1
 
-    closest_x = max(rect_xmin, min(cx, rect_xmax))
-    closest_y = max(rect_ymin, min(cy, rect_ymax))
-    dx = cx - closest_x
-    dy = cy - closest_y
-    return dx * dx + dy * dy < (radius + buffer)**2
+        # find the coordinates of the left and right lines
+        rty = rbl_list[r_index][1] # the y-coordinate of the bottom-left line
 
-def cr_overlaps(center, radius, rbl_list, rbr_list, rtr_list, rtl_list):
-    for i in range(len(rbl_list)):
-        if circle_rectangle_overlap(center, radius, rbl_list[i], rbr_list[i], rtr_list[i], rtl_list[i]):
-            return True
-    return False
+        while rty != rtl_list[r_index][1] + 1:
+            rectangle_coords.append((rtl_list[r_index][0], rty))
+            rectangle_coords.append((rtr_list[r_index][0], rty))
+            rty += 1
+
+        rectangle_coords_list.append(rectangle_coords)
+
+    return rectangle_list, rectangle_coords_list
 
 def c_overlaps(test_data, circle_data):
-    overlaps = False
 
     for circle in circle_data:
 
@@ -218,7 +214,7 @@ def build_circles(num_circles):
     buffer = 1
 
     for circ_num in range(num_circles):
-        radius = int(random.random() * min(xmax, ymax)/15 + 1)
+        radius = int(random.random() * min(xmax, ymax)/25 + 1)
         center_x = random.random() * ((xmax - radius - buffer) - (xmin + radius + buffer)) + xmin + radius + buffer
         center_y = random.random() * ((ymax - radius - buffer) - (ymin + radius + buffer)) + ymin + radius + buffer
         center = (center_x, center_y)
@@ -230,10 +226,10 @@ def build_circles(num_circles):
         
         # print(f'radius is {radius}, xmax is {xmax}, ymax is {ymax}')
 
-        while (radius < 1 or radius > 7 or c_overlaps(test_data, circle_data) or cr_overlaps()):
+        while (radius < 1 or radius > 7 or c_overlaps(test_data, circle_data)):
             
             radius = int(random.random() * max(xmax, ymax)/15 + 1)
-            print(radius)
+            # print(radius)
             center_x = random.random() * ((xmax - radius - buffer) - (xmin + radius + buffer)) + xmin + radius + buffer
             center_y = random.random() * ((ymax - radius - buffer) - (ymin + radius + buffer)) + ymin + radius + buffer
             center = (center_x, center_y)
@@ -246,13 +242,13 @@ def build_circles(num_circles):
         
         circle_line = LineString(circle.exterior.coords)
         circle_list.append(circle_line)
-        circle_coords_list.extend(circle_coords)
+        circle_coords_list.append(circle_coords)
         circle_data.append([center, radius])
-        print([center, radius])
+        # print([center, radius])
         # print(f'circle_line is {list(circle.exterior.coords)}')
         # print(circle_coords)
 
-    return circle_list
+    return circle_list, circle_coords_list
 
 # using the bounding box method
 def ell_overlaps(ellipse, ellipse_data):
@@ -309,9 +305,9 @@ def build_ellipses(num_ellipses):
     # where the first element is the location of the centerpoint, the second 
     # element is the length of the axes along x and y and the third value is the 
     # angle between the x-axis of the Cartesian base and the corresponding semi-axis
-    print(f'xmax is {xmax} and ymax is {ymax}')
+    # print(f'xmax is {xmax} and ymax is {ymax}')
     for ellipse_num in range(num_ellipses):
-        x_axis = int(random.random() * min(xmax, ymax)/4 + 1)
+        x_axis = int(random.random() * min(xmax, ymax)/20 + 1)
         y_axis = int(random.random() * x_axis) + 2
         center_x = random.random() * ((xmax - x_axis - buffer) - (xmin + x_axis + buffer)) + xmin + x_axis + buffer
         center_y = random.random() * ((ymax - x_axis - buffer) - (ymin + x_axis + buffer)) + ymin + x_axis + buffer
@@ -345,22 +341,127 @@ def build_ellipses(num_ellipses):
             ell_line = LineString(ell_rotated.exterior.coords)
         
         ellipse_list.append(ell_line)
-        ellipse_coords_list.extend(ell_coords)
+        ellipse_coords_list.append(ell_coords)
         ellipse_data.append(ellipse)
 
-    return ellipse_list
+    return ellipse_list, ellipse_coords_list
+
+
+# def check_intersections(obstacles):
+
+#     # the obstacles list has shape [a][b], where a is the shape type (rectangle, circle, etc.) and 
+#     # b is one of the LINESTRINGS for that shape. Idea is to just loop through and check what's disjoint
+
+#     # print(obstacles)
+#     updated_obstacles = []
+
+#     # start by assuming True
+    
+#     for shape_type_idx in range(len(obstacles)):
+
+
+#         for shape in obstacles[shape_type_idx]:
+
+#             disjointed = True
+#             # check that the line is disjoint with the other lines in the obstacle list
+
+#             for other_type_idx in range(len(obstacles)):
+
+#                 if other_type_idx == shape_type_idx:
+#                     continue  # because we want to look beyond the current shape type
+
+#                 # move on to next loop
+#                 for other_shape in obstacles[other_type_idx]:
+#                     if (not shape.disjoint(other_shape)) or shape.within(other_shape) or other_shape.within(shape): # the shapes are not disjoint
+#                         disjointed = False
+#                         break # exit the for loop
+
+                
+#                 if disjointed == False:
+#                     break # exit this for loop and move on to the next shape
+
+#             if disjointed:
+#                 updated_obstacles.append(shape)
+
+#     # print(f'New obstacle list: {updated_obstacles}')
+            
+#     return updated_obstacles
+
+def check_intersections(obstacles):
+    """
+    Given a list of shape lists (rectangles, circles, ellipses), return a filtered list
+    that contains only non-overlapping shapes. Keeps the first shape encountered and
+    skips any new shape that intersects or is contained within another.
+    """
+    updated_obstacles = []
+
+    # Flatten the list of obstacle types into a single list of shapes
+    all_shapes = [shape for shape_type_list in obstacles for shape in shape_type_list]
+
+    for shape in all_shapes:
+        has_conflict = False
+        for existing_shape in updated_obstacles:
+            # if (not shape.disjoint(existing_shape)) or \
+            #    shape.within(existing_shape) or \
+            #    existing_shape.within(shape):
+            if shape.intersects(existing_shape):
+                has_conflict = True
+                break
+        if not has_conflict:
+            updated_obstacles.append(shape)
+
+    return updated_obstacles
+
+
+
+#### Currently the code checks for the self-intersection of a shape with another shape of its own type
+#### needs to check for the intersection of shape of one type with a shape of another type
 
 outside = LineString([bl, br, tr, tl, bl])
 wall_es = [outside]
-# rectangles = build_rectangles(5)
-# circles = build_circles(5)
-# for r in rectangles:
-#     wall_es.append(r)
-# for c in circles:
-#     wall_es.append(c)
-ellipses = build_ellipses(10)
-for el in ellipses:
-    wall_es.append(el)
+
+obstacles = []
+obstacle_coords = []
+
+# num_shapes = 10
+
+rectangles, rectangle_coords = build_rectangles(10)
+circles, circle_coords = build_circles(10)
+ellipses, ellipse_coords = build_ellipses(10)
+
+
+obstacles.append(rectangles)
+obstacles.append(circles)
+obstacles.append(ellipses)
+
+
+print(f'Rectangle list is: {rectangles}')
+print(f'Circle list is {circles}')
+print(f'Ellipse list is {ellipses}')
+
+obstacle_coords.append(rectangle_coords)
+obstacle_coords.append(circle_coords)
+obstacle_coords.append(ellipse_coords)
+
+# print(f'Obstacles are: {obstacles}')
+# print(f'Obstacle coords are: {obstacle_coords}')
+
+# check for intersections
+updated_obstacles = check_intersections(obstacles)
+# updated_obstacles = obstacles
+
+# for line1 in updated_obstacles:
+#     for line2 in line1:
+#         wall_es.append(line2)
+
+
+# print(f'updated_obstacles: {updated_obstacles}')
+
+for line in updated_obstacles:
+        wall_es.append(line)
+
+# print(f'wall_es is {wall_es}')
+
 walls = prep(MultiLineString(wall_es))
 
 # Visualization Utility
