@@ -7,5 +7,8 @@ quadruped. Phase 1 involved implementing CPU-based RRT and GPU-parallelized RRT 
 and using it to plan. Finally, [Phase 3](https://github.com/brit-wright/mujoco_stuff) involved building
 and simulating a model-based controller for the Go2 quadruped in Mujoco simulation. 
 
+# Software/Library Requirements
+This repo is entirely Python-based. The following libraries are needed: numpy, matplotlib, shapely.
+
 # Questions
 Feel free to reach out at bmwright@caltech.edu if you have questions :D
